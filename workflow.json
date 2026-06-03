@@ -1,0 +1,126 @@
+{
+  "name": "Allegro Order Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "baselinker-order",
+        "options": {}
+      },
+      "name": "BaseLinker Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "id": "c3d4e5f6-0003-0003-0003-000000000001",
+      "typeVersion": 2,
+      "webhookId": "YOUR_WEBHOOK_ID"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.baselinker.com/connector.php",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "token", "value": "YOUR_BASELINKER_API_KEY" },
+            { "name": "method", "value": "getOrders" },
+            { "name": "parameters", "value": "={\"order_id\": {{ $json.order_id }} }" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Order Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [480, 300],
+      "id": "c3d4e5f6-0003-0003-0003-000000000002",
+      "typeVersion": 4.4
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer YOUR_GROQ_API_KEY" }]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "=application/json",
+        "body": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"Generate a friendly order confirmation message in Polish for an Allegro buyer. Be warm, professional, mention estimated shipping 1-2 business days. Reply ONLY with the message text, nothing else.\"},\n    {\"role\": \"user\", \"content\": \"Order: {{ JSON.stringify($json) }}\"}\n  ]\n}",
+        "options": {}
+      },
+      "name": "Groq AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [720, 300],
+      "id": "c3d4e5f6-0003-0003-0003-000000000003",
+      "typeVersion": 4.4
+    },
+    {
+      "parameters": {
+        "jsCode": "const reply = $input.all()[0].json.choices[0].message.content;\nconst order = $('Get Order Details').first().json;\n\nreturn [{\n  json: {\n    order_id: order.order_id || '',\n    buyer_name: order.delivery_fullname || '',\n    product: order.products?.[0]?.name || '',\n    total: order.payment_done || '',\n    reply_message: reply,\n    date: new Date().toLocaleString('pl'),\n    status: 'confirmed ✅'\n  }\n}];"
+      },
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "position": [960, 300],
+      "id": "c3d4e5f6-0003-0003-0003-000000000004",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.baselinker.com/connector.php",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "token", "value": "YOUR_BASELINKER_API_KEY" },
+            { "name": "method", "value": "addOrderMessage" },
+            { "name": "parameters", "value": "={\"order_id\": \"{{ $('Code in JavaScript').first().json.order_id }}\", \"message\": \"{{ $('Code in JavaScript').first().json.reply_message }}\", \"message_type\": 1}" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Reply to Buyer",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1200, 200],
+      "id": "c3d4e5f6-0003-0003-0003-000000000005",
+      "typeVersion": 4.4
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "YOUR_GOOGLE_SHEET_ID" },
+        "sheetName": { "__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Orders" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $('Code in JavaScript').first().json.date }}",
+            "Order ID": "={{ $('Code in JavaScript').first().json.order_id }}",
+            "Buyer": "={{ $('Code in JavaScript').first().json.buyer_name }}",
+            "Product": "={{ $('Code in JavaScript').first().json.product }}",
+            "Total": "={{ $('Code in JavaScript').first().json.total }}",
+            "Status": "={{ $('Code in JavaScript').first().json.status }}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Log to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [1200, 400],
+      "id": "c3d4e5f6-0003-0003-0003-000000000006",
+      "typeVersion": 4.7,
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "YOUR_GOOGLE_CREDENTIAL_ID", "name": "Google Sheets OAuth2 API" }
+      }
+    }
+  ],
+  "connections": {
+    "BaseLinker Webhook": { "main": [[{ "node": "Get Order Details", "type": "main", "index": 0 }]] },
+    "Get Order Details": { "main": [[{ "node": "Groq AI", "type": "main", "index": 0 }]] },
+    "Groq AI": { "main": [[{ "node": "Code in JavaScript", "type": "main", "index": 0 }]] },
+    "Code in JavaScript": { "main": [[{ "node": "Reply to Buyer", "type": "main", "index": 0 }, { "node": "Log to Sheets", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}
